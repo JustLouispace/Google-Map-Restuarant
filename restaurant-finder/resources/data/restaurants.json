@@ -1,0 +1,114 @@
+[
+  {
+    "id": 1,
+    "name": "Bangkok Kitchen",
+    "address": "123 Bang Sue, Bangkok",
+    "description": "Authentic Thai cuisine with a modern twist. Our chefs use fresh local ingredients to create traditional dishes with unique flavors.",
+    "cuisine": "Thai",
+    "rating": 4.5,
+    "image": "/images/restaurants/bangkok-kitchen.jpg",
+    "openingHours": "10:00 AM - 10:00 PM",
+    "location": {
+      "lat": 13.8282,
+      "lng": 100.5795
+    }
+  },
+  {
+    "id": 2,
+    "name": "Sushi Bang",
+    "address": "456 Bang Sue District, Bangkok",
+    "description": "Premium Japanese sushi restaurant offering the freshest seafood and traditional preparation methods.",
+    "cuisine": "Japanese",
+    "rating": 4.7,
+    "image": "/images/restaurants/sushi-bang.jpg",
+    "openingHours": "11:00 AM - 9:30 PM",
+    "location": {
+      "lat": 13.8199,
+      "lng": 100.5321
+    }
+  },
+  {
+    "id": 3,
+    "name": "Pasta Paradise",
+    "address": "789 Bang Sue Road, Bangkok",
+    "description": "Authentic Italian pasta and pizza made with imported ingredients and traditional recipes.",
+    "cuisine": "Italian",
+    "rating": 4.3,
+    "image": "/images/restaurants/pasta-paradise.jpg",
+    "openingHours": "11:30 AM - 10:30 PM",
+    "location": {
+      "lat": 13.8125,
+      "lng": 100.5411
+    }
+  },
+  {
+    "id": 4,
+    "name": "Spice of India",
+    "address": "101 Bang Sue Avenue, Bangkok",
+    "description": "Rich and flavorful Indian cuisine with a wide variety of vegetarian and non-vegetarian options.",
+    "cuisine": "Indian",
+    "rating": 4.6,
+    "image": "/images/restaurants/spice-india.jpg",
+    "openingHours": "12:00 PM - 10:00 PM",
+    "location": {
+      "lat": 13.8301,
+      "lng": 100.5532
+    }
+  },
+  {
+    "id": 5,
+    "name": "Sue's Burgers",
+    "address": "202 Bang Sue Center, Bangkok",
+    "description": "Juicy gourmet burgers with a variety of toppings and homemade sauces. Also serving craft beers.",
+    "cuisine": "American",
+    "rating": 4.2,
+    "image": "/images/restaurants/sues-burgers.jpg",
+    "openingHours": "11:00 AM - 11:00 PM",
+    "location": {
+      "lat": 13.8175,
+      "lng": 100.5275
+    }
+  },
+  {
+    "id": 6,
+    "name": "Dim Sum House",
+    "address": "303 Bang Sue Street, Bangkok",
+    "description": "Traditional Chinese dim sum and Cantonese specialties served in a cozy atmosphere.",
+    "cuisine": "Chinese",
+    "rating": 4.4,
+    "image": "/images/restaurants/dim-sum-house.jpg",
+    "openingHours": "9:00 AM - 9:00 PM",
+    "location": {
+      "lat": 13.8225,
+      "lng": 100.5375
+    }
+  },
+  {
+    "id": 7,
+    "name": "Taco Fiesta",
+    "address": "404 Bang Sue Plaza, Bangkok",
+    "description": "Authentic Mexican tacos, burritos, and quesadillas with homemade salsas and guacamole.",
+    "cuisine": "Mexican",
+    "rating": 4.1,
+    "image": "/images/restaurants/taco-fiesta.jpg",
+    "openingHours": "11:30 AM - 10:00 PM",
+    "location": {
+      "lat": 13.815,
+      "lng": 100.545
+    }
+  },
+  {
+    "id": 8,
+    "name": "Bang Sue Bistro",
+    "address": "505 Bang Sue Main Road, Bangkok",
+    "description": "French-inspired bistro offering classic dishes with a Thai twist. Elegant atmosphere and fine wines.",
+    "cuisine": "French",
+    "rating": 4.8,
+    "image": "/images/restaurants/bang-sue-bistro.jpg",
+    "openingHours": "5:00 PM - 11:00 PM",
+    "location": {
+      "lat": 13.8275,
+      "lng": 100.5325
+    }
+  }
+]
