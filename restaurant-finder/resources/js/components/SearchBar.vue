@@ -6,7 +6,7 @@
           <input
             type="text"
             class="form-control"
-            placeholder="Search restaurants (e.g., Bang sue)"
+            placeholder="Enter location or restaurant name (e.g., Bang sue)"
             v-model="term"
             aria-label="Search"
           />
@@ -46,13 +46,15 @@
 </template>
 
 <script setup>
+// This component allows users to search for restaurants
+// It provides a form with input for search term, and dropdowns for cuisine and rating filters
 import { ref, onMounted } from 'vue';
 import axios from 'axios';
 
 const props = defineProps({
   initialValue: {
     type: String,
-    default: ''
+    default: 'Bang sue' // Default to Bang sue as per assignment
   }
 });
 
@@ -62,6 +64,7 @@ const selectedCuisine = ref('');
 const selectedRating = ref('');
 const cuisines = ref([]);
 
+// Submit the search form
 const submitSearch = () => {
   emit('search', {
     term: term.value,
@@ -70,13 +73,15 @@ const submitSearch = () => {
   });
 };
 
+// Reset all filters and trigger a new search
 const resetFilters = () => {
-  term.value = '';
+  term.value = 'Bang sue'; // Reset to default search term as per assignment
   selectedCuisine.value = '';
   selectedRating.value = '';
   submitSearch();
 };
 
+// Fetch available cuisine types from the API
 const fetchCuisines = async () => {
   try {
     const response = await axios.get('/api/restaurants/cuisines');
@@ -89,5 +94,6 @@ const fetchCuisines = async () => {
 
 onMounted(() => {
   fetchCuisines();
+  term.value = props.initialValue;
 });
 </script>
