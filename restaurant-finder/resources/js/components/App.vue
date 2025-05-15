@@ -19,7 +19,7 @@
       
       <div class="col-lg-4">
         <restaurant-list 
-          :restaurants="restaurants" 
+          :restaurants="restaurants || []" 
           :loading="loading"
           @select-restaurant="setSelectedRestaurant"
         />
@@ -35,7 +35,8 @@ import SearchBar from './SearchBar.vue';
 import GoogleMap from './GoogleMap.vue';
 import RestaurantList from './RestaurantList.vue';
 
-const restaurants = ref([]);
+// Declare restaurants only once
+const restaurants = ref([]);  // Initialize as empty array
 const selectedRestaurant = ref(null);
 const searchTerm = ref('Bang sue');
 const loading = ref(true);
@@ -43,12 +44,30 @@ const loading = ref(true);
 const fetchRestaurants = async (term = searchTerm.value) => {
   loading.value = true;
   try {
+    // Make sure to use the full URL with /api prefix
     const response = await axios.get('/api/restaurants', {
-      params: { search: term }
+      params: { 
+        search: term,
+        // Add a timestamp to prevent caching
+        _t: new Date().getTime()
+      }
     });
-    restaurants.value = response.data.data;
+    
+    console.log('API Response:', response.data);
+    
+    // Check if response.data is an array or has a data property
+    if (response.data && Array.isArray(response.data)) {
+      restaurants.value = response.data;
+    } else if (response.data && Array.isArray(response.data.data)) {
+      restaurants.value = response.data.data;
+    } else {
+      console.error('Unexpected API response format:', response.data);
+      restaurants.value = []; // Fallback to empty array
+    }
+    
   } catch (error) {
     console.error('Error fetching restaurants:', error);
+    restaurants.value = []; // Set to empty array on error
   } finally {
     loading.value = false;
   }

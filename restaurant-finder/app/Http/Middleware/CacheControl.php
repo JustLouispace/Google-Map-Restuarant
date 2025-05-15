@@ -1,4 +1,3 @@
-// In app/Http/Middleware/CacheControl.php
 <?php
 
 namespace App\Http\Middleware;

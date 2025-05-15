@@ -1,36 +1,25 @@
 <?php
 
-namespace App\Services;
+namespace App\Http\Resources;
 
-use Illuminate\Support\Facades\File;
-use Illuminate\Support\Collection;
+use Illuminate\Http\Resources\Json\JsonResource;
 
-class RestaurantService
+class RestaurantResource extends JsonResource
 {
-    protected function getRestaurantsData(): Collection
+    public function toArray($request)
     {
-        $path = resource_path('data/restaurants.json');
-        $data = File::get($path);
-        return collect(json_decode($data, true));
-    }
-    
-    public function searchRestaurants(string $searchTerm = ''): Collection
-    {
-        $restaurants = $this->getRestaurantsData();
-        
-        if (empty($searchTerm)) {
-            return $restaurants;
-        }
-        
-        return $restaurants->filter(function ($restaurant) use ($searchTerm) {
-            return str_contains(strtolower($restaurant['name']), strtolower($searchTerm)) ||
-                   str_contains(strtolower($restaurant['address']), strtolower($searchTerm)) ||
-                   str_contains(strtolower($restaurant['cuisine']), strtolower($searchTerm));
-        })->values();
-    }
-    
-    public function getRestaurant($id)
-    {
-        return $this->getRestaurantsData()->firstWhere('id', (int) $id);
+        return [
+            'id' => $this['id'],
+            'name' => $this['name'],
+            'address' => $this['address'],
+            'description' => $this['description'],
+            'cuisine' => $this['cuisine'],
+            'rating' => $this['rating'],
+            'image' => $this['image'],
+            'openingHours' => $this['openingHours'],
+            'location' => $this['location'],
+            'features' => $this['features'] ?? [],
+            'priceRange' => $this['priceRange'] ?? '$',
+        ];
     }
 }

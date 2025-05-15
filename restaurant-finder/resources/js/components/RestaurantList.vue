@@ -1,7 +1,7 @@
 <template>
   <div class="card shadow-sm">
     <div class="card-header bg-white">
-      <h5 class="mb-0">Restaurants ({{ restaurants.length }})</h5>
+      <h5 class="mb-0">Restaurants ({{ restaurants ? restaurants.length : 0 }})</h5>
     </div>
     
     <div class="card-body p-0">
@@ -12,7 +12,7 @@
         <p class="mt-2">Loading restaurants...</p>
       </div>
       
-      <div v-else-if="restaurants.length === 0" class="text-center p-4">
+      <div v-else-if="!restaurants || restaurants.length === 0" class="text-center p-4">
         <i class="bi bi-search fs-1 text-muted"></i>
         <p class="mt-2">No restaurants found. Try a different search term.</p>
       </div>
@@ -36,7 +36,10 @@
               </p>
               <div class="d-flex align-items-center mb-1">
                 <span class="badge bg-light text-dark me-2">{{ restaurant.cuisine }}</span>
-                <small>{{ restaurant.rating }}/5 ⭐</small>
+                <div class="text-warning">
+                  <i v-for="n in Math.floor(restaurant.rating)" :key="n" class="bi bi-star-fill"></i>
+                  <i v-if="restaurant.rating % 1 > 0" class="bi bi-star-half"></i>
+                </div>
               </div>
               <p class="mb-0 small text-truncate">{{ restaurant.openingHours }}</p>
             </div>
@@ -48,12 +51,10 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
-
 const props = defineProps({
   restaurants: {
     type: Array,
-    required: true
+    default: () => []
   },
   loading: {
     type: Boolean,
