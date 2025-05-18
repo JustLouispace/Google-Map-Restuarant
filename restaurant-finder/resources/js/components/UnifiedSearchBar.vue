@@ -2,67 +2,30 @@
   <div class="card shadow-sm mb-4">
     <div class="card-body">
       <form @submit.prevent="submitSearch" class="row g-3">
-        <!-- Search mode toggle -->
-        <div class="col-12 mb-2">
-          <div class="btn-group w-100" role="group">
-            <button 
-              type="button" 
-              class="btn" 
-              :class="searchMode === 'keyword' ? 'btn-primary' : 'btn-outline-primary'"
-              @click="setSearchMode('keyword')"
-            >
-              <i class="bi bi-search me-1"></i> Keyword Search
-            </button>
-            <button 
-              type="button" 
-              class="btn" 
-              :class="searchMode === 'nearby' ? 'btn-primary' : 'btn-outline-primary'"
-              @click="setSearchMode('nearby')"
-            >
-              <i class="bi bi-geo-alt me-1"></i> Nearby Search
-            </button>
-          </div>
-        </div>
-        
-        <!-- Unified search input -->
         <div class="col-md-12">
           <div class="input-group">
             <input
               type="text"
               class="form-control"
-              :placeholder="searchPlaceholder"
-              v-model="searchInput"
-              aria-label="Search"
+              placeholder="Enter location or restaurant name (e.g., Bang Sue, Bangkok)"
+              v-model="locationInput"
+              ref="autocompleteInput"
+              aria-label="Location"
             />
             <button class="btn btn-primary" type="submit">
               <i class="bi bi-search me-1"></i> Search
             </button>
-            <button v-if="searchMode === 'nearby'" class="btn btn-outline-primary" type="button" @click="useMyLocation">
+            <button class="btn btn-outline-primary" type="button" @click="useMyLocation">
               <i class="bi bi-geo-alt me-1"></i> My Location
             </button>
           </div>
-          <div v-if="searchMode === 'nearby'" class="form-text mt-1">
+          <div class="form-text mt-1">
             <i class="bi bi-info-circle me-1"></i> 
-            Enter a location or click on the map to set a search point.
+            Enter a location or restaurant name, or click on the map to set a search point.
           </div>
         </div>
         
-        <!-- Radius slider (only for nearby search) -->
-        <div v-if="searchMode === 'nearby'" class="col-md-12 mt-3">
-          <label for="radius" class="form-label">Search Radius: {{ radiusText }}</label>
-          <input
-            type="range"
-            class="form-range"
-            id="radius"
-            v-model.number="radius"
-            min="500"
-            max="5000"
-            step="100"
-            @input="updateRadiusText"
-          />
-        </div>
-        
-        <!-- Filters row -->
+        <!-- Filters -->
         <div class="col-md-6">
           <label for="cuisine" class="form-label">Cuisine</label>
           <select class="form-select" id="cuisine" v-model="selectedCuisine">
@@ -83,6 +46,7 @@
           </select>
         </div>
         
+        <!-- Reset button -->
         <div class="col-12">
           <button class="btn btn-outline-secondary" type="button" @click="resetFilters">
             <i class="bi bi-x-circle me-1"></i> Reset Filters
@@ -94,80 +58,61 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, watch } from 'vue';
+import { ref, onMounted, watch } from 'vue';
 import axios from 'axios';
 
+// Props
 const props = defineProps({
   initialValue: {
     type: String,
     default: 'Bang sue'
-  },
-  searchMode: {
-    type: String,
-    default: 'keyword'
-  },
-  searchRadius: {
-    type: Number,
-    default: 1000
   }
 });
 
-const emit = defineEmits(['search', 'nearby-search', 'use-current-location', 'mode-change', 'radius-change']);
+// Emits
+const emit = defineEmits(['search', 'use-current-location', 'search-term-change']);
 
-const searchInput = ref(props.initialValue);
-const radius = ref(props.searchRadius);
-const radiusText = ref('1 km');
+// State
+const locationInput = ref(props.initialValue);
 const selectedCuisine = ref('');
 const selectedRating = ref('');
 const cuisines = ref([]);
+const fixedRadius = 50000; // Increased to 50km to find more restaurants
+const autocompleteInput = ref(null);
 
-const searchPlaceholder = computed(() => {
-  return props.searchMode === 'keyword' 
-    ? 'Enter restaurant name or cuisine (e.g., Bang sue, Thai food)' 
-    : 'Enter location (e.g., Bangkok, Sukhumvit)';
-});
-
-const updateRadiusText = () => {
-  const value = radius.value;
-  if (value >= 1000) {
-    radiusText.value = `${(value / 1000).toFixed(1)} km`;
-  } else {
-    radiusText.value = `${value} m`;
-  }
-  emit('radius-change', radius.value);
-};
-
+/**
+ * Submit search form
+ */
 const submitSearch = () => {
-  if (props.searchMode === 'keyword') {
-    emit('search', {
-      term: searchInput.value,
-      cuisine: selectedCuisine.value,
-      rating: selectedRating.value
-    });
-  } else {
-    // For nearby search, we'll geocode the input to get coordinates
-    geocodeLocation(searchInput.value);
-  }
+  if (!locationInput.value) return;
+  
+  emit('search-term-change', locationInput.value);
+  
+  // Geocode the location input
+  geocodeLocation(locationInput.value);
 };
 
+/**
+ * Geocode a location string to coordinates
+ */
 const geocodeLocation = async (address) => {
   if (!address) return;
   
   try {
-    // Use Google Maps Geocoding API through our backend to avoid exposing API key
+    // Use Google Maps Geocoding API through our backend
     const response = await axios.get('/api/geocode', {
       params: { address }
     });
     
     if (response.data && response.data.results && response.data.results.length > 0) {
       const location = response.data.results[0].geometry.location;
-      emit('nearby-search', {
+      emit('search', {
         lat: location.lat,
         lng: location.lng,
-        radius: radius.value,
+        radius: fixedRadius,
         cuisine: selectedCuisine.value,
         rating: selectedRating.value,
-        useCurrentLocation: false
+        term: locationInput.value
       });
     } else {
       alert('Location not found. Please try a different search term.');
@@ -178,42 +123,31 @@ const geocodeLocation = async (address) => {
   }
 };
 
+/**
+ * Use current location for search
+ */
 const useMyLocation = () => {
   emit('use-current-location', {
-    radius: radius.value,
+    radius: fixedRadius,
     cuisine: selectedCuisine.value,
-    rating: selectedRating.value,
-    useCurrentLocation: true
+    rating: selectedRating.value
   });
 };
 
-const setSearchMode = (mode) => {
-  emit('mode-change', mode);
-  
-  // Clear search input when switching modes
-  if (mode === 'keyword') {
-    searchInput.value = props.initialValue;
-  } else {
-    searchInput.value = '';
-  }
-};
-
+/**
+ * Reset filters
+ */
 const resetFilters = () => {
   selectedCuisine.value = '';
   selectedRating.value = '';
-  radius.value = 1000;
-  updateRadiusText();
-  
-  if (props.searchMode === 'keyword') {
-    searchInput.value = props.initialValue;
-    emit('search', {
-      term: searchInput.value,
-      cuisine: '',
-      rating: ''
-    });
-  }
+  locationInput.value = props.initialValue;
+  emit('search-term-change', locationInput.value);
+  submitSearch();
 };
 
+/**
+ * Fetch available cuisine types
+ */
 const fetchCuisines = async () => {
   try {
     const response = await axios.get('/api/restaurants/cuisines');
@@ -224,26 +158,67 @@ const fetchCuisines = async () => {
   }
 };
 
-// Watch for changes in props
-watch(() => props.searchMode, (newMode) => {
-  if (newMode === 'keyword') {
-    searchInput.value = props.initialValue;
+/**
+ * Initialize Google Places Autocomplete
+ */
+const initAutocomplete = () => {
+  if (!window.google || !window.google.maps || !window.google.maps.places) {
+    console.error('Google Maps Places API not loaded');
+    return;
   }
-});
 
-watch(() => props.searchRadius, (newRadius) => {
-  radius.value = newRadius;
-  updateRadiusText();
-});
+  if (!autocompleteInput.value) return;
 
+  const autocomplete = new window.google.maps.places.Autocomplete(autocompleteInput.value, {
+    types: ['geocode', 'establishment'],
+    fields: ['place_id', 'geometry', 'name', 'formatted_address']
+  });
+
+  autocomplete.addListener('place_changed', () => {
+    const place = autocomplete.getPlace();
+    
+    if (!place.geometry) {
+      // User entered the name of a place that was not suggested
+      return;
+    }
+
+    // Update the input value with the selected place
+    locationInput.value = place.name + ', ' + place.formatted_address;
+    
+    // If we have coordinates, use them for search
+    if (place.geometry && place.geometry.location) {
+      const lat = place.geometry.location.lat();
+      const lng = place.geometry.location.lng();
+      
+      emit('search', {
+        lat: lat,
+        lng: lng,
+        radius: fixedRadius,
+        cuisine: selectedCuisine.value,
+        rating: selectedRating.value,
+        term: locationInput.value
+      });
+    }
+  });
+};
+
+// When component is mounted
 onMounted(() => {
   fetchCuisines();
-  updateRadiusText();
+  locationInput.value = props.initialValue;
+  emit('search-term-change', locationInput.value);
+  
+  // Wait for Google Maps API to load
+  const checkGoogleMapsInterval = setInterval(() => {
+    if (window.google && window.google.maps && window.google.maps.places) {
+      clearInterval(checkGoogleMapsInterval);
+      initAutocomplete();
+    }
+  }, 100);
+  
+  // Clear interval after 10 seconds to prevent infinite checking
+  setTimeout(() => {
+    clearInterval(checkGoogleMapsInterval);
+  }, 10000);
 });
 </script>
-
-<style scoped>
-.form-range {
-  width: 100%;
-}
-</style>

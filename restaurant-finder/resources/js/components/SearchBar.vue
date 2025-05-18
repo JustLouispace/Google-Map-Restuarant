@@ -23,7 +23,7 @@
         
         <div class="col-md-3">
           <select class="form-select" v-model="selectedRating">
-            <option value="">Any Rating</option>
+            <option value="">Any Ratinggggggg</option>
             <option value="4">4+ Stars</option>
             <option value="3">3+ Stars</option>
             <option value="2">2+ Stars</option>

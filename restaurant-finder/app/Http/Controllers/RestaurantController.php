@@ -11,8 +11,10 @@ use Illuminate\Support\Facades\Log;
 
 class RestaurantController extends Controller
 {
+    // Store the restaurant service
     protected $restaurantService;
 
+    // Constructor - this runs when the controller is created
     public function __construct(RestaurantService $restaurantService)
     {
         $this->restaurantService = $restaurantService;
@@ -26,32 +28,31 @@ class RestaurantController extends Controller
      */
     public function index(Request $request)
     {
+        // Get search parameters from the request
         $searchTerm = $request->query('search', 'Bang sue');
         $cuisine = $request->query('cuisine');
         $rating = $request->query('rating');
         
-        // Log search parameters for debugging
+        // Log the search request for debugging
         Log::info('Restaurant search request', [
             'term' => $searchTerm,
             'cuisine' => $cuisine,
             'rating' => $rating,
-            'ip' => $request->ip(),
-            'user_agent' => $request->userAgent(),
-            'headers' => $request->headers->all()
         ]);
         
-        // Get restaurants from service (which handles caching)
+        // Get restaurants from service
         $restaurants = $this->restaurantService->searchRestaurants($searchTerm, $cuisine, $rating);
         
+        // Log the number of results
         Log::info('Restaurant search results', [
             'count' => $restaurants->count(),
             'term' => $searchTerm
         ]);
         
-        // Force JSON response
+        // Return JSON response
         return response()->json([
             'data' => $restaurants->values()->all()
-        ], 200, ['Content-Type' => 'application/json']);
+        ]);
     }
     
     /**
@@ -66,27 +67,28 @@ class RestaurantController extends Controller
         $request->validate([
             'lat' => 'required|numeric',
             'lng' => 'required|numeric',
-            'radius' => 'nullable|integer|min:500|max:50000',
+            'radius' => 'nullable|integer|min:500|max:100000', // Increased max radius to 100km
             'cuisine' => 'nullable|string',
             'rating' => 'nullable|numeric|min:1|max:5',
+            'term' => 'nullable|string',
         ]);
         
+        // Get parameters from request
         $lat = $request->query('lat');
         $lng = $request->query('lng');
         $radius = $request->query('radius', 1000); // Default 1km
         $cuisine = $request->query('cuisine');
         $rating = $request->query('rating');
+        $term = $request->query('term');
         
-        // Log search parameters for debugging
+        // Log the search request
         Log::info('Nearby restaurant search request', [
             'lat' => $lat,
             'lng' => $lng,
             'radius' => $radius,
             'cuisine' => $cuisine,
             'rating' => $rating,
-            'ip' => $request->ip(),
-            'user_agent' => $request->userAgent(),
-            'headers' => $request->headers->all()
+            'term' => $term,
         ]);
         
         // Get nearby restaurants from service
@@ -95,20 +97,23 @@ class RestaurantController extends Controller
             (float) $lng,
             (int) $radius,
             $cuisine,
-            $rating
+            $rating,
+            $term
         );
         
+        // Log the number of results
         Log::info('Nearby restaurant search results', [
             'count' => $restaurants->count(),
             'lat' => $lat,
             'lng' => $lng,
-            'radius' => $radius
+            'radius' => $radius,
+            'term' => $term
         ]);
         
-        // Force JSON response
+        // Return JSON response
         return response()->json([
             'data' => $restaurants->values()->all()
-        ], 200, ['Content-Type' => 'application/json']);
+        ]);
     }
     
     /**
@@ -119,6 +124,7 @@ class RestaurantController extends Controller
      */
     public function geocode(Request $request)
     {
+        // Validate the address parameter
         $request->validate([
             'address' => 'required|string|max:255',
         ]);
@@ -135,8 +141,10 @@ class RestaurantController extends Controller
         }
         
         try {
+            // Get Google Maps API key from environment variables
             $apiKey = env('GOOGLE_MAPS_API_KEY');
             
+            // Check if API key exists
             if (empty($apiKey)) {
                 Log::error('Google Maps API key is missing');
                 return response()->json([
@@ -147,11 +155,13 @@ class RestaurantController extends Controller
             
             Log::info('Geocoding address', ['address' => $address]);
             
+            // Make request to Google Geocoding API
             $response = Http::get('https://maps.googleapis.com/maps/api/geocode/json', [
                 'address' => $address,
                 'key' => $apiKey,
             ]);
             
+            // Check if request was successful
             if (!$response->successful()) {
                 Log::error('Google Geocoding API error', [
                     'status' => $response->status(),
@@ -164,6 +174,7 @@ class RestaurantController extends Controller
                 ], 500);
             }
             
+            // Get response data
             $data = $response->json();
             
             // Cache the results for 24 hours
@@ -172,11 +183,12 @@ class RestaurantController extends Controller
             return response()->json($data);
             
         } catch (\Exception $e) {
+            // Log the error
             Log::error('Error geocoding address', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+                'error' => $e->getMessage()
             ]);
             
+            // Return error response
             return response()->json([
                 'error' => 'Geocoding error: ' . $e->getMessage(),
                 'results' => []
@@ -192,13 +204,16 @@ class RestaurantController extends Controller
      */
     public function show($id)
     {
+        // Get restaurant details from service
         $restaurant = $this->restaurantService->getRestaurant($id);
         
+        // Check if restaurant exists
         if (!$restaurant) {
-            return response()->json(['message' => 'Restaurant not found'], 404, ['Content-Type' => 'application/json']);
+            return response()->json(['message' => 'Restaurant not found'], 404);
         }
         
-        return response()->json($restaurant, 200, ['Content-Type' => 'application/json']);
+        // Return restaurant details
+        return response()->json($restaurant);
     }
     
     /**
@@ -210,7 +225,7 @@ class RestaurantController extends Controller
     {
         // Cache cuisine list for 24 hours
         return Cache::remember('restaurant_cuisines', 60 * 24, function () {
-            return response()->json($this->restaurantService->getAllCuisines(), 200, ['Content-Type' => 'application/json']);
+            return response()->json($this->restaurantService->getAllCuisines());
         });
     }
     
@@ -221,12 +236,14 @@ class RestaurantController extends Controller
      */
     public function test()
     {
+        // Get Google Maps API key
         $apiKey = env('GOOGLE_MAPS_API_KEY');
         $hasApiKey = !empty($apiKey);
         
-        // If we have an API key, mask it for security in the response
+        // If we have an API key, mask it for security
         $maskedKey = $hasApiKey ? substr($apiKey, 0, 4) . '...' . substr($apiKey, -4) : 'Not set';
         
+        // Return test response
         return response()->json([
             'status' => 'success',
             'message' => 'Restaurant API is working',
@@ -235,6 +252,6 @@ class RestaurantController extends Controller
             'google_maps_api_key_preview' => $maskedKey,
             'environment' => app()->environment(),
             'php_version' => PHP_VERSION
-        ], 200, ['Content-Type' => 'application/json']);
+        ]);
     }
 }

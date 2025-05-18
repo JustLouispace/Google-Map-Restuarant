@@ -1,17 +1,20 @@
 <template>
   <div class="card shadow-sm mb-4">
     <div class="card-body p-0">
+      <!-- Show error if map fails to load -->
       <div v-if="mapError" class="alert alert-danger m-3">
         {{ mapError }}
       </div>
+      <!-- Map container -->
       <div class="map-container" ref="mapContainer" style="height: 600px; width: 100%"></div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, watch, onUnmounted } from 'vue';
+import { ref, onMounted, watch, onUnmounted, defineExpose } from 'vue';
 
+// Props
 const props = defineProps({
   restaurants: {
     type: Array,
@@ -25,31 +28,40 @@ const props = defineProps({
     type: Object,
     default: null
   },
-  searchRadius: {
-    type: Number,
-    default: 1000
-  },
   searchMode: {
     type: String,
     default: 'keyword'
+  },
+  searchTerm: {
+    type: String,
+    default: ''
+  },
+  key: {
+    type: Number,
+    default: 0
   }
 });
 
+// Emits
 const emit = defineEmits(['select-restaurant', 'close-info-window', 'location-selected']);
+
+// Refs
 const mapContainer = ref(null);
 const googleMap = ref(null);
 const markers = ref([]);
 const infoWindow = ref(null);
 const mapError = ref('');
-const placesService = ref(null);
 const mapListeners = ref([]);
-const radiusCircle = ref(null);
 const locationMarker = ref(null);
 
+/**
+ * Initialize the Google Map
+ */
 const initMap = () => {
   try {
     console.log('Initializing map...');
     
+    // Check if Google Maps API is loaded
     if (!window.google || !window.google.maps) {
       mapError.value = 'Google Maps API not loaded. Please check your API key and internet connection.';
       return;
@@ -58,6 +70,7 @@ const initMap = () => {
     // Bangkok coordinates as default center
     const center = { lat: 13.8055, lng: 100.5312 };
     
+    // Create the map
     googleMap.value = new window.google.maps.Map(mapContainer.value, {
       center,
       zoom: 12,
@@ -66,8 +79,10 @@ const initMap = () => {
       fullscreenControl: true,
     });
     
+    // Create info window
     infoWindow.value = new window.google.maps.InfoWindow();
     
+    // Add info window close listener
     if (infoWindow.value) {
       const listener = infoWindow.value.addListener('closeclick', () => {
         emit('close-info-window');
@@ -75,93 +90,77 @@ const initMap = () => {
       mapListeners.value.push({ target: infoWindow.value, name: 'closeclick', listener });
     }
     
-    // Initialize Places service
-    if (window.google.maps.places) {
-      placesService.value = new window.google.maps.places.PlacesService(googleMap.value);
-    }
-    
-    // Add search box
-    const input = document.createElement('input');
-    input.className = 'form-control';
-    input.type = 'text';
-    input.placeholder = 'Search for a location';
-    input.style.margin = '10px';
-    input.style.width = 'calc(100% - 20px)';
-    
-    const searchBox = new window.google.maps.places.SearchBox(input);
-    googleMap.value.controls[window.google.maps.ControlPosition.TOP_CENTER].push(input);
-    
-    // Bias the SearchBox results towards current map's viewport
-    const boundsListener = googleMap.value.addListener('bounds_changed', () => {
-      searchBox.setBounds(googleMap.value.getBounds());
-    });
-    mapListeners.value.push({ target: googleMap.value, name: 'bounds_changed', listener: boundsListener });
-    
-    // Listen for the event fired when the user selects a prediction and retrieve
-    // more details for that place.
-    const placesListener = searchBox.addListener('places_changed', () => {
-      const places = searchBox.getPlaces();
-      
-      if (places.length === 0) {
-        return;
-      }
-      
-      // For each place, get the icon, name and location.
-      const bounds = new window.google.maps.LatLngBounds();
-      
-      places.forEach((place) => {
-        if (!place.geometry || !place.geometry.location) {
-          console.log('Returned place contains no geometry');
-          return;
-        }
-        
-        if (props.searchMode === 'nearby') {
-          // Set the search location to the selected place
-          const lat = place.geometry.location.lat();
-          const lng = place.geometry.location.lng();
-          emit('location-selected', { lat, lng });
-        }
-        
-        if (place.geometry.viewport) {
-          // Only geocodes have viewport.
-          bounds.union(place.geometry.viewport);
-        } else {
-          bounds.extend(place.geometry.location);
-        }
-      });
-      
-      googleMap.value.fitBounds(bounds);
-    });
-    mapListeners.value.push({ target: searchBox, name: 'places_changed', listener: placesListener });
-    
-    // Add click listener for setting search location in nearby mode
+    // Add click listener for setting search location
     const clickListener = googleMap.value.addListener('click', (event) => {
-      if (props.searchMode === 'nearby') {
-        const lat = event.latLng.lat();
-        const lng = event.latLng.lng();
-        emit('location-selected', { lat, lng });
-      }
+      const lat = event.latLng.lat();
+      const lng = event.latLng.lng();
+      emit('location-selected', { lat, lng });
     });
     mapListeners.value.push({ target: googleMap.value, name: 'click', listener: clickListener });
     
+    // Update markers
     updateMarkers();
+    
+    // Update search location marker if we have one
+    if (props.searchLocation) {
+      updateSearchLocation();
+    }
   } catch (error) {
     console.error('Error initializing map:', error);
     mapError.value = `Error initializing map: ${error.message}`;
   }
 };
 
+
+
+/**
+ * Completely recreate the map from scratch
+ */
+const recreateMapComponent = async () => {
+  showMap.value = false;
+  selectedRestaurant.value = null;
+  searchLocation.value = null;
+  searchLocationKey.value++;
+  
+  // Increase timeout to ensure DOM updates
+  await new Promise(resolve => setTimeout(resolve, 100));
+  
+  showMap.value = true;
+};
+
+/**
+ * Clear all markers from the map
+ */
+const clearAllMarkers = () => {
+  // Clear restaurant markers
+  if (markers.value && Array.isArray(markers.value)) {
+    markers.value.forEach(marker => {
+      if (marker) marker.setMap(null);
+    });
+    markers.value = [];
+  }
+  
+  // Clear location marker
+  if (locationMarker.value) {
+    locationMarker.value.setMap(null);
+    locationMarker.value = null;
+  }
+};
+
+/**
+ * Update markers on the map
+ */
 const updateMarkers = () => {
   try {
     if (!googleMap.value) return;
     
-    // Clear existing markers
+    // Clear existing restaurant markers
     if (markers.value && Array.isArray(markers.value)) {
       markers.value.forEach(marker => {
         if (marker) marker.setMap(null);
       });
+      markers.value = [];
     }
-    markers.value = [];
     
     // Add new markers
     if (props.restaurants && Array.isArray(props.restaurants) && props.restaurants.length > 0) {
@@ -186,6 +185,7 @@ const updateMarkers = () => {
           return;
         }
         
+        // Create marker
         const marker = new window.google.maps.Marker({
           position,
           map: googleMap.value,
@@ -193,6 +193,7 @@ const updateMarkers = () => {
           animation: window.google.maps.Animation.DROP
         });
         
+        // Add click listener
         const clickListener = marker.addListener('click', () => {
           emit('select-restaurant', restaurant);
         });
@@ -204,8 +205,8 @@ const updateMarkers = () => {
       
       // Only adjust bounds if we have markers
       if (markers.value.length > 0) {
-        // If we're in nearby mode and have a search location, include it in the bounds
-        if (props.searchMode === 'nearby' && props.searchLocation) {
+        // If we have a search location, include it in the bounds
+        if (props.searchLocation) {
           bounds.extend(props.searchLocation);
         }
         
@@ -222,8 +223,8 @@ const updateMarkers = () => {
     } else {
       console.log('No restaurants to display on map');
       
-      // If we're in nearby mode and have a search location, center on it
-      if (props.searchMode === 'nearby' && props.searchLocation) {
+      // If we have a search location, center on it
+      if (props.searchLocation) {
         googleMap.value.setCenter(props.searchLocation);
         googleMap.value.setZoom(14);
       }
@@ -234,13 +235,27 @@ const updateMarkers = () => {
   }
 };
 
+/**
+ * Update info window for selected restaurant
+ */
 const updateInfoWindow = () => {
   try {
-    if (!props.selectedRestaurant || !infoWindow.value || !googleMap.value) return;
+    if (!props.selectedRestaurant || !googleMap.value) return;
     
     if (!props.selectedRestaurant.location) {
       console.warn('Selected restaurant has no location data:', props.selectedRestaurant);
       return;
+    }
+    
+    // Create a new info window if needed
+    if (!infoWindow.value) {
+      infoWindow.value = new window.google.maps.InfoWindow();
+      
+      // Add info window close listener
+      const listener = infoWindow.value.addListener('closeclick', () => {
+        emit('close-info-window');
+      });
+      mapListeners.value.push({ target: infoWindow.value, name: 'closeclick', listener });
     }
     
     // Include distance in the info window if available
@@ -248,6 +263,7 @@ const updateInfoWindow = () => {
       ? `<p class="mb-1 small"><i class="bi bi-geo"></i> ${props.selectedRestaurant.distanceText}</p>` 
       : '';
     
+    // Create info window content
     const content = `
       <div class="info-window">
         <h5 class="mb-1">${props.selectedRestaurant.name}</h5>
@@ -261,12 +277,14 @@ const updateInfoWindow = () => {
       </div>
     `;
     
+    // Set info window content and position
     infoWindow.value.setContent(content);
     infoWindow.value.setPosition({
       lat: parseFloat(props.selectedRestaurant.location.lat),
       lng: parseFloat(props.selectedRestaurant.location.lng)
     });
     
+    // Open info window
     infoWindow.value.open(googleMap.value);
   } catch (error) {
     console.error('Error updating info window:', error);
@@ -274,9 +292,14 @@ const updateInfoWindow = () => {
   }
 };
 
+/**
+ * Update search location marker
+ */
 const updateSearchLocation = () => {
   try {
     if (!googleMap.value || !props.searchLocation) return;
+    
+    console.log('Updating search location marker:', props.searchLocation);
     
     // Clear existing location marker
     if (locationMarker.value) {
@@ -299,9 +322,6 @@ const updateSearchLocation = () => {
       zIndex: 1000 // Ensure it's above restaurant markers
     });
     
-    // Update radius circle
-    updateRadiusCircle();
-    
     // Center map on search location
     googleMap.value.setCenter(props.searchLocation);
   } catch (error) {
@@ -310,37 +330,9 @@ const updateSearchLocation = () => {
   }
 };
 
-const updateRadiusCircle = () => {
-  try {
-    if (!googleMap.value || !props.searchLocation) return;
-    
-    // Clear existing radius circle
-    if (radiusCircle.value) {
-      radiusCircle.value.setMap(null);
-      radiusCircle.value = null;
-    }
-    
-    // Create new radius circle
-    radiusCircle.value = new window.google.maps.Circle({
-      strokeColor: '#4285F4',
-      strokeOpacity: 0.8,
-      strokeWeight: 2,
-      fillColor: '#4285F4',
-      fillOpacity: 0.1,
-      map: googleMap.value,
-      center: props.searchLocation,
-      radius: props.searchRadius,
-      zIndex: 1 // Ensure it's below markers
-    });
-    
-    // Fit map to circle bounds
-    googleMap.value.fitBounds(radiusCircle.value.getBounds());
-  } catch (error) {
-    console.error('Error updating radius circle:', error);
-    mapError.value = `Error updating search radius: ${error.message}`;
-  }
-};
-
+/**
+ * Load Google Maps script
+ */
 const loadGoogleMapsScript = () => {
   return new Promise((resolve, reject) => {
     try {
@@ -385,7 +377,9 @@ const loadGoogleMapsScript = () => {
   });
 };
 
-// Clean up event listeners to prevent memory leaks
+/**
+ * Clean up event listeners to prevent memory leaks
+ */
 const cleanupListeners = () => {
   mapListeners.value.forEach(({ target, name, listener }) => {
     if (target && listener) {
@@ -395,18 +389,43 @@ const cleanupListeners = () => {
   mapListeners.value = [];
 };
 
+const recreateMap = () => {
+  try {
+    console.log('Completely recreating map...');
+    
+    // Clear existing elements first
+    if (mapContainer.value) {
+      mapContainer.value.innerHTML = '';
+    }
+    
+    cleanupListeners();
+    clearAllMarkers();
+    
+    // Reinitialize fresh map
+    initMap();
+  } catch (error) {
+    console.error('Error recreating map:', error);
+    mapError.value = `Error recreating map: ${error.message}`;
+  }
+};
+
+
+// In GoogleMap.vue's onMounted
 onMounted(async () => {
   try {
     await loadGoogleMapsScript();
-    initMap();
+    // Always recreate the map on mount
+    recreateMap();
   } catch (error) {
     console.error('Failed to initialize map:', error);
     mapError.value = `Failed to load Google Maps: ${error.message}`;
   }
 });
 
+// When component is unmounted
 onUnmounted(() => {
   cleanupListeners();
+  clearAllMarkers();
 });
 
 // Watch for changes in restaurants
@@ -426,48 +445,19 @@ watch(() => props.selectedRestaurant, (newVal) => {
 });
 
 // Watch for changes in search location
-watch(() => props.searchLocation, (newVal) => {
-  if (newVal && googleMap.value && props.searchMode === 'nearby') {
-    console.log('Search location changed, updating map');
-    updateSearchLocation();
+watch(() => props.searchLocation, (newVal, oldVal) => {
+  console.log('Search location changed:', oldVal, '->', newVal);
+  if (googleMap.value) {
+    // Completely recreate the map when search location changes
+    recreateMap();
   }
 }, { deep: true });
 
-// Watch for changes in search radius
-watch(() => props.searchRadius, (newVal) => {
-  if (newVal && googleMap.value && props.searchLocation && props.searchMode === 'nearby') {
-    console.log('Search radius changed, updating circle');
-    updateRadiusCircle();
-  }
-});
 
-// Watch for changes in search mode
-watch(() => props.searchMode, (newVal) => {
-  if (newVal === 'nearby') {
-    // Clear existing markers when switching to nearby mode
-    if (markers.value && Array.isArray(markers.value)) {
-      markers.value.forEach(marker => {
-        if (marker) marker.setMap(null);
-      });
-    }
-    markers.value = [];
-    
-    // Update search location if available
-    if (props.searchLocation) {
-      updateSearchLocation();
-    }
-  } else {
-    // Clear radius circle and location marker when switching to keyword mode
-    if (radiusCircle.value) {
-      radiusCircle.value.setMap(null);
-      radiusCircle.value = null;
-    }
-    
-    if (locationMarker.value) {
-      locationMarker.value.setMap(null);
-      locationMarker.value = null;
-    }
-  }
+
+// Expose methods to parent component
+defineExpose({
+  recreateMap
 });
 </script>
 
