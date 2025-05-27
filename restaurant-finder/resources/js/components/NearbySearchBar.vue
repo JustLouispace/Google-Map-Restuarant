@@ -10,7 +10,7 @@
           </h5>
           <p class="text-muted mb-3">
             <i class="bi bi-info-circle me-1"></i>
-            Click on the map to set your location, or use the buttons below to search.
+            Default location: Bang sue. Click on the map to change location, or search below.
           </p>
         </div>
 
@@ -25,13 +25,17 @@
               id="location-input"
               type="text"
               class="form-control"
-              placeholder="Enter location (e.g., Bangkok, Sukhumvit Road)"
+              placeholder="Enter location (e.g., Sukhumvit, Silom, Chatuchak)"
               v-model="locationInput"
               @keyup.enter="searchLocation"
             />
             <button class="btn btn-outline-primary" type="button" @click="searchLocation">
               <i class="bi bi-search me-1"></i> Search
             </button>
+          </div>
+          <div class="form-text">
+            <i class="bi bi-lightbulb me-1"></i>
+            Try: "Siam", "Asok", "Chatuchak", "Sukhumvit", "Silom"
           </div>
         </div>
 
@@ -42,6 +46,17 @@
             <button class="btn btn-primary flex-fill" type="button" @click="useMyLocation">
               <i class="bi bi-geo-alt me-1"></i> My Location
             </button>
+            <button class="btn btn-outline-primary flex-fill" type="button" @click="resetToBangSue">
+              <i class="bi bi-house me-1"></i> Bang sue
+            </button>
+          </div>
+        </div>
+
+        <!-- Current Location Display -->
+        <div v-if="hasLocation" class="col-12">
+          <div class="alert alert-success mb-0">
+            <i class="bi bi-geo-alt-fill me-2"></i>
+            <strong>Current location:</strong> {{ props.searchLocation?.address || 'Unknown location' }}
           </div>
         </div>
 
@@ -90,6 +105,7 @@
           </div>
         </div>
 
+
         <!-- Action Buttons -->
         <div class="col-12">
           <div class="d-flex gap-2">
@@ -110,12 +126,12 @@
           <!-- Status Message -->
           <div v-if="!hasLocation" class="alert alert-info mt-3 mb-0">
             <i class="bi bi-info-circle me-2"></i>
-            Please select a location on the map or use "My Location" to start searching.
+            Please wait while we load the default location (Bang sue) or select a new location.
           </div>
           
           <div v-else class="alert alert-success mt-3 mb-0">
             <i class="bi bi-check-circle me-2"></i>
-            Location selected! Click "Find Restaurants" to search within {{ radiusText }}.
+            Location ready! Click "Find Restaurants" to search within {{ radiusText }}.
           </div>
         </div>
       </div>
@@ -184,6 +200,9 @@ const searchLocation = async () => {
         lng: location.lng,
         address: response.data.results[0].formatted_address
       });
+      
+      // Clear input after successful search
+      locationInput.value = '';
     } else {
       alert('Location not found. Please try a different search term.');
     }
@@ -195,6 +214,38 @@ const searchLocation = async () => {
 
 const useMyLocation = () => {
   emit('use-current-location');
+};
+
+const resetToBangSue = async () => {
+  try {
+    const response = await axios.get('/api/geocode', {
+      params: { address: 'Bang sue, Bangkok, Thailand' }
+    });
+    
+    if (response.data?.results?.length > 0) {
+      const location = response.data.results[0].geometry.location;
+      emit('location-search', {
+        lat: location.lat,
+        lng: location.lng,
+        address: response.data.results[0].formatted_address
+      });
+    } else {
+      // Fallback coordinates for Bang sue
+      emit('location-search', {
+        lat: 13.8282,
+        lng: 100.5795,
+        address: 'Bang sue, Bangkok (fallback)'
+      });
+    }
+  } catch (error) {
+    console.error('Error resetting to Bang sue:', error);
+    // Use fallback coordinates
+    emit('location-search', {
+      lat: 13.8282,
+      lng: 100.5795,
+      address: 'Bang sue, Bangkok (fallback)'
+    });
+  }
 };
 
 const searchNearby = () => {

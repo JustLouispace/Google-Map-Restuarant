@@ -7,7 +7,7 @@
           Restaurant Finder
         </h1>
         <p class="text-center text-muted mb-4">
-          Find restaurants near any location. Click on the map or search for a place to get started.
+          Find restaurants near any location. Default search: Bang sue area.
         </p>
         
         <!-- Nearby search bar -->
@@ -269,6 +269,68 @@ const clearError = () => {
   error.value = null;
 };
 
+// Default search for Bang sue
+const searchDefaultLocation = async () => {
+  try {
+    console.log('Setting up default location: Bang sue');
+    
+    // Geocode Bang sue to get coordinates
+    const response = await axios.get('/api/geocode', {
+      params: { address: 'Bang sue, Bangkok, Thailand' }
+    });
+    
+    if (response.data?.results?.length > 0) {
+      const location = response.data.results[0].geometry.location;
+      const address = response.data.results[0].formatted_address;
+      
+      searchLocation.value = {
+        lat: location.lat,
+        lng: location.lng,
+        address: address
+      };
+      
+      console.log('Default location set:', searchLocation.value);
+      
+      // Auto-search restaurants in Bang sue area
+      await fetchNearbyRestaurants({
+        lat: location.lat,
+        lng: location.lng,
+        radius: searchRadius.value
+      });
+      
+    } else {
+      console.warn('Could not geocode Bang sue, using fallback coordinates');
+      // Fallback coordinates for Bang sue area
+      searchLocation.value = {
+        lat: 13.8282,
+        lng: 100.5795,
+        address: 'Bang sue, Bangkok (approximate)'
+      };
+      
+      await fetchNearbyRestaurants({
+        lat: 13.8282,
+        lng: 100.5795,
+        radius: searchRadius.value
+      });
+    }
+    
+  } catch (err) {
+    console.error('Error setting default location:', err);
+    // Use fallback coordinates if geocoding fails
+    searchLocation.value = {
+      lat: 13.8282,
+      lng: 100.5795,
+      address: 'Bang sue, Bangkok (fallback)'
+    };
+    
+    await fetchNearbyRestaurants({
+      lat: 13.8282,
+      lng: 100.5795,
+      radius: searchRadius.value
+    });
+  }
+};
+
 // Check if Google Maps API key is set
 const checkApiKey = async () => {
   try {
@@ -277,19 +339,26 @@ const checkApiKey = async () => {
     
     if (!response.data.google_maps_api_key_exists) {
       error.value = 'Google Maps API key is not set. Please add it to your .env file.';
+      return false;
     }
+    return true;
   } catch (err) {
     console.error('Error checking API key:', err);
     error.value = 'Could not verify API configuration. Please check server logs.';
+    return false;
   }
 };
 
-onMounted(() => {
+onMounted(async () => {
   // Check API key first
-  checkApiKey();
+  const apiKeyExists = await checkApiKey();
   
-  // Show welcome message
-  console.log('Restaurant Finder loaded. Click on the map or search for a location to find nearby restaurants.');
+  if (apiKeyExists) {
+    // Set default location to Bang sue and search
+    await searchDefaultLocation();
+  }
+  
+  console.log('Restaurant Finder loaded with default location: Bang sue');
 });
 </script>
 

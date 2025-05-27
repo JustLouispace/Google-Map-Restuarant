@@ -15,8 +15,12 @@ use Illuminate\Support\Facades\Route;
 */
 
 // Restaurant API routes
-Route::get('/restaurants', [RestaurantController::class, 'index']);
 Route::get('/restaurants/nearby', [RestaurantController::class, 'nearby']);
+
+
+
+
+Route::get('/restaurants', [RestaurantController::class, 'index']);
 Route::get('/restaurants/cuisines', [RestaurantController::class, 'cuisines']);
 Route::get('/geocode', [RestaurantController::class, 'geocode']);
 Route::get('/restaurants/{id}', [RestaurantController::class, 'show'])->where('id', '[0-9]+|[A-Za-z0-9_-]+');
