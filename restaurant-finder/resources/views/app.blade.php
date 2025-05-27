@@ -21,7 +21,7 @@
     <!-- Environment Variables for Frontend -->
     <script>
         window.Laravel = {
-            googleMapsApiKey: "{{ env('GOOGLE_MAPS_API_KEY') }}"
+            googleMapsApiKey: '{{ env("GOOGLE_MAPS_API_KEY") }}'
         };
     </script>
 </head>

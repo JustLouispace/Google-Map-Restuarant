@@ -17,7 +17,6 @@ class RestaurantService
      */
     protected function getRestaurantsData(): Collection
     {
-        // Get restaurant data from JSON file
         $path = resource_path('data/restaurants.json');
         $data = File::get($path);
         return collect(json_decode($data, true));
@@ -52,10 +51,9 @@ class RestaurantService
             // Get Google Maps API key from environment
             $apiKey = env('GOOGLE_MAPS_API_KEY');
             
-            // If API key is missing, use local data
             if (empty($apiKey)) {
                 Log::error('Google Maps API key is missing');
-                return $this->getRestaurantsData(); // Fallback to local data
+                return $this->getRestaurantsData(); // Fallback to local data if API key is missing
             }
             
             Log::info('Searching restaurants with Google Places API', [
@@ -64,7 +62,8 @@ class RestaurantService
                 'rating' => $rating
             ]);
             
-            // Build the search query
+            // Build the Places API request
+            $url = "https://maps.googleapis.com/maps/api/place/textsearch/json";
             $query = $searchTerm;
             
             // Add restaurant type to search
@@ -74,14 +73,17 @@ class RestaurantService
                 $query .= " restaurant";
             }
             
-            // Make API request
-            $response = Http::get("https://maps.googleapis.com/maps/api/place/textsearch/json", [
+            Log::info('Making Google Places API request', [
+                'url' => $url,
+                'query' => $query
+            ]);
+            
+            $response = Http::get($url, [
                 'query' => $query,
                 'type' => 'restaurant',
                 'key' => $apiKey,
             ]);
             
-            // Check if request was successful
             if (!$response->successful()) {
                 Log::error('Google Places API error', [
                     'status' => $response->status(),
@@ -90,10 +92,9 @@ class RestaurantService
                 return $this->getRestaurantsData(); // Fallback to local data
             }
             
-            // Get response data
             $data = $response->json();
             
-            // Log the response
+            // Log the response for debugging
             Log::info('Google Places API response', [
                 'status' => $data['status'] ?? 'UNKNOWN',
                 'results_count' => count($data['results'] ?? [])
@@ -101,14 +102,58 @@ class RestaurantService
             
             $results = $data['results'] ?? [];
             
-            // If no results, fallback to local data
             if (empty($results)) {
                 Log::warning('No results from Google Places API, falling back to local data');
                 return $this->getRestaurantsData();
             }
             
             // Transform Google Places results to match our application format
-            $restaurants = $this->transformGooglePlacesResults($results, $apiKey);
+            $restaurants = collect($results)->map(function ($place, $index) {
+                // Extract first photo reference if available
+                $photoReference = null;
+                $photoUrl = '/images/restaurants/placeholder.jpg'; // Default image
+                
+                if (!empty($place['photos'][0]['photo_reference'])) {
+                    $photoReference = $place['photos'][0]['photo_reference'];
+                    $apiKey = env('GOOGLE_MAPS_API_KEY');
+                    $photoUrl = "https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference={$photoReference}&key={$apiKey}";
+                }
+                
+                // Extract cuisine type from types array
+                $cuisineType = 'Restaurant';
+                if (!empty($place['types'])) {
+                    $foodTypes = array_intersect($place['types'], [
+                        'bakery', 'cafe', 'bar', 'meal_takeaway', 'meal_delivery', 
+                        'restaurant', 'food', 'italian_restaurant', 'japanese_restaurant', 
+                        'chinese_restaurant', 'thai_restaurant', 'indian_restaurant'
+                    ]);
+                    
+                    if (!empty($foodTypes)) {
+                        $cuisineType = ucfirst(str_replace('_restaurant', '', str_replace('_', ' ', reset($foodTypes))));
+                    }
+                }
+                
+                // Format the place data to match our application structure
+                return [
+                    'id' => $index + 1, // Generate sequential IDs
+                    'place_id' => $place['place_id'], // Store Google's place_id for details lookup
+                    'name' => $place['name'],
+                    'address' => $place['formatted_address'] ?? '',
+                    'description' => $place['vicinity'] ?? '',
+                    'cuisine' => $cuisineType,
+                    'rating' => $place['rating'] ?? 0,
+                    'image' => $photoUrl,
+                    'openingHours' => isset($place['opening_hours']) && isset($place['opening_hours']['open_now']) 
+                        ? ($place['opening_hours']['open_now'] ? 'Open now' : 'Closed') 
+                        : 'Hours not available',
+                    'location' => [
+                        'lat' => $place['geometry']['location']['lat'],
+                        'lng' => $place['geometry']['location']['lng']
+                    ],
+                    'priceLevel' => $place['price_level'] ?? 0,
+                    'userRatingsTotal' => $place['user_ratings_total'] ?? 0
+                ];
+            });
             
             // Filter by minimum rating if provided
             if (!empty($rating)) {
@@ -124,84 +169,14 @@ class RestaurantService
             return $restaurants->values();
             
         } catch (\Exception $e) {
-            // Log the error
             Log::error('Error searching restaurants with Google Places API', [
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
             ]);
             
             // Fallback to local data in case of error
             return $this->getRestaurantsData();
         }
-    }
-    
-    /**
-     * Transform Google Places API results to our application format
-     * 
-     * @param array $results Google Places API results
-     * @param string $apiKey Google Maps API key
-     * @return \Illuminate\Support\Collection
-     */
-    protected function transformGooglePlacesResults(array $results, string $apiKey): Collection
-    {
-        return collect($results)->map(function ($place, $index) use ($apiKey) {
-            // Extract first photo reference if available
-            $photoReference = null;
-            $photoUrl = '/images/restaurants/placeholder.jpg'; // Default image
-            
-            if (!empty($place['photos'][0]['photo_reference'])) {
-                $photoReference = $place['photos'][0]['photo_reference'];
-                $photoUrl = "https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference={$photoReference}&key={$apiKey}";
-            }
-            
-            // Extract cuisine type from types array
-            $cuisineType = $this->extractCuisineType($place['types'] ?? []);
-            
-            // Format the place data to match our application structure
-            return [
-                'id' => $index + 1, // Generate sequential IDs
-                'place_id' => $place['place_id'], // Store Google's place_id for details lookup
-                'name' => $place['name'],
-                'address' => $place['formatted_address'] ?? '',
-                'description' => $place['vicinity'] ?? '',
-                'cuisine' => $cuisineType,
-                'rating' => $place['rating'] ?? 0,
-                'image' => $photoUrl,
-                'openingHours' => isset($place['opening_hours']) && isset($place['opening_hours']['open_now']) 
-                    ? ($place['opening_hours']['open_now'] ? 'Open now' : 'Closed') 
-                    : 'Hours not available',
-                'location' => [
-                    'lat' => $place['geometry']['location']['lat'],
-                    'lng' => $place['geometry']['location']['lng']
-                ],
-                'priceLevel' => $place['price_level'] ?? 0,
-                'userRatingsTotal' => $place['user_ratings_total'] ?? 0
-            ];
-        });
-    }
-    
-    /**
-     * Extract cuisine type from Google Places types array
-     * 
-     * @param array $types Google Places types
-     * @return string Cuisine type
-     */
-    protected function extractCuisineType(array $types): string
-    {
-        $cuisineType = 'Restaurant';
-        
-        if (!empty($types)) {
-            $foodTypes = array_intersect($types, [
-                'bakery', 'cafe', 'bar', 'meal_takeaway', 'meal_delivery', 
-                'restaurant', 'food', 'italian_restaurant', 'japanese_restaurant', 
-                'chinese_restaurant', 'thai_restaurant', 'indian_restaurant'
-            ]);
-            
-            if (!empty($foodTypes)) {
-                $cuisineType = ucfirst(str_replace('_restaurant', '', str_replace('_', ' ', reset($foodTypes))));
-            }
-        }
-        
-        return $cuisineType;
     }
     
     /**
@@ -212,13 +187,13 @@ class RestaurantService
      * @param int $radius Radius in meters
      * @param string|null $cuisine Cuisine type filter
      * @param string|null $rating Minimum rating filter
-     * @param string|null $term Search term for keyword filtering
+     * @param int $maxResults Maximum number of results to return
      * @return \Illuminate\Support\Collection
      */
-    public function searchRestaurantsNearby(float $lat, float $lng, int $radius = 1000, string $cuisine = null, string $rating = null, string $term = null): Collection
+    public function searchRestaurantsNearby(float $lat, float $lng, int $radius = 1000, string $cuisine = null, string $rating = null, int $maxResults = 60): Collection
     {
         // Create a cache key based on search parameters
-        $cacheKey = "restaurants:nearby:{$lat},{$lng}:{$radius}:" . ($cuisine ?? 'all') . ":" . ($rating ?? 'all') . ":" . ($term ?? 'all');
+        $cacheKey = "restaurants:nearby:{$lat},{$lng}:{$radius}:" . ($cuisine ?? 'all') . ":" . ($rating ?? 'all') . ":{$maxResults}";
         
         // Check if we have cached results
         if (Cache::has($cacheKey)) {
@@ -230,10 +205,9 @@ class RestaurantService
             // Get Google Maps API key from environment
             $apiKey = env('GOOGLE_MAPS_API_KEY');
             
-            // If API key is missing, return empty collection
             if (empty($apiKey)) {
                 Log::error('Google Maps API key is missing');
-                return collect([]); 
+                return $this->getRestaurantsData(); // Fallback to local data if API key is missing
             }
             
             Log::info('Searching nearby restaurants with Google Places API', [
@@ -242,81 +216,150 @@ class RestaurantService
                 'radius' => $radius,
                 'cuisine' => $cuisine,
                 'rating' => $rating,
-                'term' => $term
+                'maxResults' => $maxResults
             ]);
             
-            // Build the Places API request parameters
-            $params = [
-                'location' => "{$lat},{$lng}",
-                'radius' => $radius,
-                'type' => 'restaurant',
-                'key' => $apiKey,
-            ];
+            $allResults = [];
+            $nextPageToken = null;
+            $requestCount = 0;
+            $maxRequests = 3; // Limit to 3 requests (60 results max)
             
-            // Add keyword for cuisine or term if provided
-            if (!empty($cuisine) && $cuisine !== 'all') {
-                $params['keyword'] = $cuisine;
-            } elseif (!empty($term)) {
-                $params['keyword'] = $term;
-            }
-            
-            // Make API request
-            $response = Http::get("https://maps.googleapis.com/maps/api/place/nearbysearch/json", $params);
-            
-            // Check if request was successful
-            if (!$response->successful()) {
-                Log::error('Google Places Nearby API error', [
-                    'status' => $response->status(),
-                    'body' => $response->body()
-                ]);
-                return collect([]); // Return empty collection on error
-            }
-            
-            // Get response data
-            $data = $response->json();
-            
-            // Log the response
-            Log::info('Google Places Nearby API response', [
-                'status' => $data['status'] ?? 'UNKNOWN',
-                'results_count' => count($data['results'] ?? [])
-            ]);
-            
-            $results = $data['results'] ?? [];
-            
-            // If no results, try text search if we have a term
-            if (empty($results) && !empty($term)) {
-                Log::info('No nearby results, trying text search with term', ['term' => $term]);
+            do {
+                // Build the Places API request for nearby search
+                $url = "https://maps.googleapis.com/maps/api/place/nearbysearch/json";
                 
-                // Try text search with the term
-                $textSearchParams = [
-                    'query' => $term . ' restaurant',
+                $params = [
                     'location' => "{$lat},{$lng}",
                     'radius' => $radius,
                     'type' => 'restaurant',
                     'key' => $apiKey,
                 ];
                 
-                $textResponse = Http::get("https://maps.googleapis.com/maps/api/place/textsearch/json", $textSearchParams);
-                
-                if ($textResponse->successful()) {
-                    $textData = $textResponse->json();
-                    $results = $textData['results'] ?? [];
-                    
-                    Log::info('Text search results', [
-                        'status' => $textData['status'] ?? 'UNKNOWN',
-                        'results_count' => count($results)
-                    ]);
+                // Add keyword for cuisine if provided
+                if (!empty($cuisine) && $cuisine !== 'all') {
+                    $params['keyword'] = $cuisine;
                 }
-            }
+                
+                // Add next page token if available
+                if ($nextPageToken) {
+                    $params['pagetoken'] = $nextPageToken;
+                    // Wait 2 seconds before making next page request (Google requirement)
+                    sleep(2);
+                }
+                
+                Log::info('Making Google Places Nearby API request', [
+                    'url' => $url,
+                    'params' => array_merge($params, ['key' => 'HIDDEN']),
+                    'request_count' => $requestCount + 1
+                ]);
+                
+                $response = Http::timeout(30)->get($url, $params);
+                
+                if (!$response->successful()) {
+                    Log::error('Google Places Nearby API error', [
+                        'status' => $response->status(),
+                        'body' => $response->body()
+                    ]);
+                    break; // Stop trying if there's an error
+                }
+                
+                $data = $response->json();
+                
+                // Log the response for debugging
+                Log::info('Google Places Nearby API response', [
+                    'status' => $data['status'] ?? 'UNKNOWN',
+                    'results_count' => count($data['results'] ?? []),
+                    'has_next_page_token' => isset($data['next_page_token']),
+                    'request_count' => $requestCount + 1
+                ]);
+                
+                $results = $data['results'] ?? [];
+                
+                if (!empty($results)) {
+                    $allResults = array_merge($allResults, $results);
+                }
+                
+                // Get next page token
+                $nextPageToken = $data['next_page_token'] ?? null;
+                $requestCount++;
+                
+                // Stop if we have enough results or reached max requests
+                if (count($allResults) >= $maxResults || $requestCount >= $maxRequests) {
+                    break;
+                }
+                
+            } while ($nextPageToken && $requestCount < $maxRequests);
             
-            // If still no results, return empty collection
-            if (empty($results)) {
-                Log::warning('No nearby or text search results from Google Places API');
+            Log::info('Total results collected', [
+                'total_results' => count($allResults),
+                'requests_made' => $requestCount
+            ]);
+            
+            if (empty($allResults)) {
+                Log::warning('No nearby results from Google Places API');
                 return collect([]);
             }
             
             // Transform Google Places results to match our application format
-            $restaurants = $this->transformNearbyResults($results, $apiKey, $lat, $lng);
+            $restaurants = collect($allResults)->map(function ($place, $index) use ($lat, $lng) {
+                // Extract first photo reference if available
+                $photoReference = null;
+                $photoUrl = '/images/restaurants/placeholder.jpg'; // Default image
+                
+                if (!empty($place['photos'][0]['photo_reference'])) {
+                    $photoReference = $place['photos'][0]['photo_reference'];
+                    $apiKey = env('GOOGLE_MAPS_API_KEY');
+                    $photoUrl = "https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference={$photoReference}&key={$apiKey}";
+                }
+                
+                // Extract cuisine type from types array
+                $cuisineType = 'Restaurant';
+                if (!empty($place['types'])) {
+                    $foodTypes = array_intersect($place['types'], [
+                        'bakery', 'cafe', 'bar', 'meal_takeaway', 'meal_delivery', 
+                        'restaurant', 'food', 'italian_restaurant', 'japanese_restaurant', 
+                        'chinese_restaurant', 'thai_restaurant', 'indian_restaurant'
+                    ]);
+                    
+                    if (!empty($foodTypes)) {
+                        $cuisineType = ucfirst(str_replace('_restaurant', '', str_replace('_', ' ', reset($foodTypes))));
+                    }
+                }
+                
+                // Calculate distance from search point
+                $distance = $this->calculateDistance(
+                    $lat, 
+                    $lng, 
+                    $place['geometry']['location']['lat'], 
+                    $place['geometry']['location']['lng']
+                );
+                
+                // Format the place data to match our application structure
+                return [
+                    'id' => $index + 1, // Generate sequential IDs
+                    'place_id' => $place['place_id'], // Store Google's place_id for details lookup
+                    'name' => $place['name'],
+                    'address' => $place['vicinity'] ?? '',
+                    'description' => $place['vicinity'] ?? '',
+                    'cuisine' => $cuisineType,
+                    'rating' => $place['rating'] ?? 0,
+                    'image' => $photoUrl,
+                    'openingHours' => isset($place['opening_hours']) && isset($place['opening_hours']['open_now']) 
+                        ? ($place['opening_hours']['open_now'] ? 'Open now' : 'Closed') 
+                        : 'Hours not available',
+                    'location' => [
+                        'lat' => $place['geometry']['location']['lat'],
+                        'lng' => $place['geometry']['location']['lng']
+                    ],
+                    'priceLevel' => $place['price_level'] ?? 0,
+                    'userRatingsTotal' => $place['user_ratings_total'] ?? 0,
+                    'distance' => $distance, // Add distance from search point
+                    'distanceText' => $this->formatDistance($distance) // Formatted distance
+                ];
+            });
+            
+            // Remove duplicates based on place_id
+            $restaurants = $restaurants->unique('place_id');
             
             // Filter by minimum rating if provided
             if (!empty($rating)) {
@@ -326,8 +369,8 @@ class RestaurantService
                 });
             }
             
-            // Sort by distance
-            $restaurants = $restaurants->sortBy('distance')->values();
+            // Sort by distance and limit results
+            $restaurants = $restaurants->sortBy('distance')->take($maxResults)->values();
             
             // Cache the results for 30 minutes
             Cache::put($cacheKey, $restaurants, now()->addMinutes(30));
@@ -335,71 +378,14 @@ class RestaurantService
             return $restaurants;
             
         } catch (\Exception $e) {
-            // Log the error
             Log::error('Error searching nearby restaurants with Google Places API', [
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
             ]);
             
             // Return empty collection on error
             return collect([]);
         }
-    }
-    
-    /**
-     * Transform nearby search results with distance information
-     * 
-     * @param array $results Google Places API results
-     * @param string $apiKey Google Maps API key
-     * @param float $lat Search latitude
-     * @param float $lng Search longitude
-     * @return \Illuminate\Support\Collection
-     */
-    protected function transformNearbyResults(array $results, string $apiKey, float $lat, float $lng): Collection
-    {
-        return collect($results)->map(function ($place, $index) use ($apiKey, $lat, $lng) {
-            // Extract first photo reference if available
-            $photoReference = null;
-            $photoUrl = '/images/restaurants/placeholder.jpg'; // Default image
-            
-            if (!empty($place['photos'][0]['photo_reference'])) {
-                $photoReference = $place['photos'][0]['photo_reference'];
-                $photoUrl = "https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference={$photoReference}&key={$apiKey}";
-            }
-            
-            // Extract cuisine type from types array
-            $cuisineType = $this->extractCuisineType($place['types'] ?? []);
-            
-            // Calculate distance from search point
-            $distance = $this->calculateDistance(
-                $lat, 
-                $lng, 
-                $place['geometry']['location']['lat'], 
-                $place['geometry']['location']['lng']
-            );
-            
-            // Format the place data to match our application structure
-            return [
-                'id' => $index + 1, // Generate sequential IDs
-                'place_id' => $place['place_id'], // Store Google's place_id for details lookup
-                'name' => $place['name'],
-                'address' => $place['vicinity'] ?? '',
-                'description' => $place['vicinity'] ?? '',
-                'cuisine' => $cuisineType,
-                'rating' => $place['rating'] ?? 0,
-                'image' => $photoUrl,
-                'openingHours' => isset($place['opening_hours']) && isset($place['opening_hours']['open_now']) 
-                    ? ($place['opening_hours']['open_now'] ? 'Open now' : 'Closed') 
-                    : 'Hours not available',
-                'location' => [
-                    'lat' => $place['geometry']['location']['lat'],
-                    'lng' => $place['geometry']['location']['lng']
-                ],
-                'priceLevel' => $place['price_level'] ?? 0,
-                'userRatingsTotal' => $place['user_ratings_total'] ?? 0,
-                'distance' => $distance, // Add distance from search point
-                'distanceText' => $this->formatDistance($distance) // Formatted distance
-            ];
-        });
     }
     
     /**
@@ -473,23 +459,21 @@ class RestaurantService
     public function getRestaurantDetails($placeId)
     {
         try {
-            // Get Google Maps API key
             $apiKey = env('GOOGLE_MAPS_API_KEY');
             
-            // If API key is missing, return null
             if (empty($apiKey)) {
                 Log::error('Google Maps API key is missing');
                 return null;
             }
             
-            // Make API request
-            $response = Http::get("https://maps.googleapis.com/maps/api/place/details/json", [
+            $url = "https://maps.googleapis.com/maps/api/place/details/json";
+            
+            $response = Http::get($url, [
                 'place_id' => $placeId,
                 'fields' => 'name,formatted_address,geometry,icon,photos,place_id,plus_code,types,url,vicinity,formatted_phone_number,opening_hours,price_level,rating,reviews,website',
                 'key' => $apiKey,
             ]);
             
-            // Check if request was successful
             if (!$response->successful()) {
                 Log::error('Google Places Details API error', [
                     'status' => $response->status(),
@@ -498,11 +482,9 @@ class RestaurantService
                 return null;
             }
             
-            // Get response data
             $data = $response->json();
             $place = $data['result'] ?? null;
             
-            // If no place found, return null
             if (!$place) {
                 return null;
             }
@@ -517,7 +499,18 @@ class RestaurantService
             }
             
             // Extract cuisine type from types array
-            $cuisineType = $this->extractCuisineType($place['types'] ?? []);
+            $cuisineType = 'Restaurant';
+            if (!empty($place['types'])) {
+                $foodTypes = array_intersect($place['types'], [
+                    'bakery', 'cafe', 'bar', 'meal_takeaway', 'meal_delivery', 
+                    'restaurant', 'food', 'italian_restaurant', 'japanese_restaurant', 
+                    'chinese_restaurant', 'thai_restaurant', 'indian_restaurant'
+                ]);
+                
+                if (!empty($foodTypes)) {
+                    $cuisineType = ucfirst(str_replace('_restaurant', '', str_replace('_', ' ', reset($foodTypes))));
+                }
+            }
             
             // Format opening hours if available
             $openingHoursText = 'Hours not available';
@@ -551,9 +544,9 @@ class RestaurantService
             ];
             
         } catch (\Exception $e) {
-            // Log the error
             Log::error('Error fetching restaurant details from Google Places API', [
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
             ]);
             
             return null;

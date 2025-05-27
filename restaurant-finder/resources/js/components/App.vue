@@ -1,47 +1,70 @@
 <template>
-  <div class="container py-4">
-    <h1 class="text-center mb-4">Restaurant Finder</h1>
-    
-    <!-- Search bar -->
-    <UnifiedSearchBar 
-      :initialValue="initialSearchValue" 
-      @search="handleSearch"
-      @use-current-location="handleUseCurrentLocation"
-      @search-term-change="handleSearchTermChange"
-    />
+  <div class="container-fluid py-4">
+    <div class="row justify-content-center mb-4">
+      <div class="col-md-10">
+        <h1 class="text-center mb-4">
+          <i class="bi bi-geo-alt-fill text-primary me-2"></i>
+          Restaurant Finder
+        </h1>
+        <p class="text-center text-muted mb-4">
+          Find restaurants near any location. Click on the map or search for a place to get started.
+        </p>
+        
+        <!-- Nearby search bar -->
+        <nearby-search-bar 
+          :search-location="searchLocation"
+          :search-radius="searchRadius"
+          @nearby-search="handleNearbySearch"
+          @use-current-location="useCurrentLocation"
+          @radius-change="updateRadius"
+          @location-search="handleLocationSearch"
+        />
+      </div>
+    </div>
     
     <div class="row">
-      <!-- Map -->
-      <div class="col-lg-8" v-if="showMap">
-        <GoogleMap 
-          :restaurants="restaurants" 
-          :selectedRestaurant="selectedRestaurant"
-          :searchLocation="searchLocation"
-          @select-restaurant="selectRestaurant"
-          @close-info-window="closeInfoWindow"
+      <div class="col-lg-8">
+        <google-map
+          :restaurants="restaurants"
+          :selected-restaurant="selectedRestaurant"
+          :search-location="searchLocation"
+          :search-radius="searchRadius"
+          search-mode="nearby"
+          @select-restaurant="setSelectedRestaurant"
+          @close-info-window="clearSelectedRestaurant"
           @location-selected="handleLocationSelected"
-          :key="searchLocationKey"
-          ref="mapComponent"
-        ></GoogleMap>
-      </div>
-      <div class="col-lg-8" v-else>
-        <div class="card shadow-sm mb-4">
-          <div class="card-body p-0 d-flex justify-content-center align-items-center" style="height: 600px;">
-            <div class="spinner-border text-primary" role="status">
-              <span class="visually-hidden">Loading map...</span>
-            </div>
-          </div>
-        </div>
+        />
       </div>
       
-      <!-- Restaurant list -->
       <div class="col-lg-4">
-        <RestaurantList 
-          :restaurants="restaurants" 
+        <restaurant-list 
+          :restaurants="restaurants || []" 
           :loading="loading"
-          :selectedRestaurant="selectedRestaurant"
-          @select-restaurant="selectRestaurant"
+          :selected-restaurant="selectedRestaurant"
+          search-mode="nearby"
+          @select-restaurant="setSelectedRestaurant"
         />
+      </div>
+    </div>
+    
+    <!-- Error alert -->
+    <div v-if="error" class="row mt-3">
+      <div class="col-12">
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+          <strong>Error:</strong> {{ error }}
+          <button type="button" class="btn-close" @click="clearError" aria-label="Close"></button>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Loading overlay -->
+    <div v-if="loading" class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" 
+         style="background: rgba(255,255,255,0.8); z-index: 9999;">
+      <div class="text-center">
+        <div class="spinner-border text-primary mb-3" style="width: 3rem; height: 3rem;" role="status">
+          <span class="visually-hidden">Loading...</span>
+        </div>
+        <p class="h5">Searching for restaurants...</p>
       </div>
     </div>
   </div>
@@ -50,164 +73,233 @@
 <script setup>
 import { ref, onMounted } from 'vue';
 import axios from 'axios';
-import UnifiedSearchBar from './UnifiedSearchBar.vue';
+import NearbySearchBar from './NearbySearchBar.vue';
 import GoogleMap from './GoogleMap.vue';
 import RestaurantList from './RestaurantList.vue';
 
-// State
-const initialSearchValue = ref('Bang sue');
 const restaurants = ref([]);
-const loading = ref(false);
 const selectedRestaurant = ref(null);
-const searchLocation = ref(null);
-const searchTerm = ref('Bang sue');
-const searchLocationKey = ref(0); // Add a key to force re-render of the map component
-const mapComponent = ref(null);
-const showMap = ref(true);
+const loading = ref(false);
+const error = ref(null);
+const searchLocation = ref(null); // { lat, lng, address }
+const searchRadius = ref(1000); // Default radius in meters
 
-/**
- * Completely recreate the map by toggling its visibility
- */
-const recreateMapComponent = async () => {
-  // Hide the map component
-  showMap.value = false;
-  
-  // Clear previous search location and selected restaurant
-  selectedRestaurant.value = null;
-  searchLocation.value = null;
-  
-  // Force component re-render by incrementing the key
-  searchLocationKey.value++;
-  
-  // Wait a moment to ensure the DOM is updated
-  await new Promise(resolve => setTimeout(resolve, 50));
-  
-  // Show the map component again with a new instance
-  showMap.value = true;
-};
+// Configure axios defaults
+axios.defaults.headers.common['X-Requested-With'] = 'XMLHttpRequest';
+axios.defaults.headers.common['Accept'] = 'application/json';
 
-/**
- * Handle search from the unified search bar
- */
-const handleSearch = async (params) => {
+const fetchNearbyRestaurants = async (params = {}) => {
+  const { lat, lng, radius, cuisine, rating, maxResults } = params;
+
   loading.value = true;
+  error.value = null;
+  
+  if (!lat || !lng) {
+    error.value = 'Please select a location on the map or use your current location.';
+    loading.value = false;
+    return;
+  }
   
   try {
-    // Completely recreate the map component
-    await recreateMapComponent();
+    console.log('Fetching nearby restaurants with params:', params);
     
-    // Use nearby search API for all searches
     const response = await axios.get('/api/restaurants/nearby', {
-      params: {
-        lat: params.lat,
-        lng: params.lng,
-        radius: 50000, // Increased to 50km to find more restaurants
-        cuisine: params.cuisine,
-        rating: params.rating,
-        term: params.term // Pass the search term to the API
+      params: { 
+        lat: lat,
+        lng: lng,
+        radius: radius || searchRadius.value,
+        cuisine: cuisine || '',
+        rating: rating || '',
+        max_results: maxResults || 60,
       }
     });
     
-    restaurants.value = response.data.data;
+    console.log('API Response:', response);
     
-    // Set new search location AFTER getting results and recreating map
-    searchLocation.value = {
-      lat: params.lat,
-      lng: params.lng
+    // Check if response.data is an array or has a data property
+    if (response.data && Array.isArray(response.data.data)) {
+      restaurants.value = response.data.data;
+      
+      // Show success message with count
+      if (response.data.total) {
+        console.log(`Found ${response.data.total} restaurants within ${((radius || searchRadius.value) / 1000).toFixed(1)}km`);
+      }
+    } else if (response.data && Array.isArray(response.data)) {
+      restaurants.value = response.data;
+    } else {
+      console.error('Unexpected API response format:', response.data);
+      restaurants.value = [];
+      error.value = 'Received unexpected data format from server';
+    }
+    
+    // Update search location and radius
+    searchLocation.value = { 
+      lat: lat, 
+      lng: lng,
+      address: searchLocation.value?.address || `${lat}, ${lng}`
     };
     
-  } catch (error) {
-    console.error('Error searching restaurants:', error);
+    if (radius) {
+      searchRadius.value = radius;
+    }
+    
+  } catch (err) {
+    console.error('Error fetching nearby restaurants:', err);
     restaurants.value = [];
+    
+    if (err.response) {
+      error.value = `Server error: ${err.response.status} - ${err.response.statusText || 'Unknown error'}`;
+    } else if (err.request) {
+      error.value = 'No response from server. Please check your internet connection.';
+    } else {
+      error.value = `Error: ${err.message}`;
+    }
   } finally {
     loading.value = false;
   }
 };
 
-/**
- * Handle use current location
- */
-const handleUseCurrentLocation = async (params) => {
-  if (navigator.geolocation) {
-    // Completely recreate the map component
-    await recreateMapComponent();
-    
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        handleSearch({
-          lat: position.coords.latitude,
-          lng: position.coords.longitude,
-          radius: 50000,
-          cuisine: params.cuisine,
-          rating: params.rating
-        });
-      },
-      (error) => {
-        console.error('Error getting current location:', error);
-        alert('Unable to get your current location. Please try again or enter a location manually.');
-      }
-    );
-  } else {
-    alert('Geolocation is not supported by your browser. Please enter a location manually.');
+const handleNearbySearch = (params) => {
+  if (!searchLocation.value) {
+    error.value = 'Please select a location first.';
+    return;
+  }
+  
+  fetchNearbyRestaurants({
+    lat: searchLocation.value.lat,
+    lng: searchLocation.value.lng,
+    radius: params.radius,
+    cuisine: params.cuisine,
+    rating: params.rating,
+    maxResults: params.maxResults
+  });
+};
+
+const handleLocationSelected = (location) => {
+  searchLocation.value = {
+    lat: location.lat,
+    lng: location.lng,
+    address: `${location.lat}, ${location.lng}`
+  };
+  
+  // Auto-search when location is selected
+  fetchNearbyRestaurants({
+    lat: location.lat,
+    lng: location.lng,
+    radius: searchRadius.value
+  });
+};
+
+const handleLocationSearch = (location) => {
+  searchLocation.value = {
+    lat: location.lat,
+    lng: location.lng,
+    address: location.address
+  };
+  
+  // Auto-search when location is found
+  fetchNearbyRestaurants({
+    lat: location.lat,
+    lng: location.lng,
+    radius: searchRadius.value
+  });
+};
+
+const useCurrentLocation = () => {
+  if (!navigator.geolocation) {
+    error.value = 'Geolocation is not supported by your browser.';
+    return;
+  }
+  
+  loading.value = true;
+  error.value = null;
+  
+  navigator.geolocation.getCurrentPosition(
+    (position) => {
+      const lat = position.coords.latitude;
+      const lng = position.coords.longitude;
+      
+      searchLocation.value = {
+        lat,
+        lng,
+        address: 'Your current location'
+      };
+      
+      fetchNearbyRestaurants({
+        lat,
+        lng,
+        radius: searchRadius.value
+      });
+    },
+    (err) => {
+      loading.value = false;
+      console.error('Error getting current location:', err);
+      error.value = `Error getting your location: ${err.message}`;
+    },
+    {
+      enableHighAccuracy: true,
+      timeout: 10000,
+      maximumAge: 300000 // 5 minutes
+    }
+  );
+};
+
+const updateRadius = (radius) => {
+  searchRadius.value = radius;
+  
+  // Auto-search if location is available
+  if (searchLocation.value) {
+    fetchNearbyRestaurants({
+      lat: searchLocation.value.lat,
+      lng: searchLocation.value.lng,
+      radius: radius
+    });
   }
 };
 
-/**
- * Handle location selected from map
- */
-const handleLocationSelected = async (location) => {
-  // Completely recreate the map component
-  await recreateMapComponent();
-  
-  handleSearch({
-    lat: location.lat,
-    lng: location.lng,
-    radius: 50000,
-    cuisine: '',
-    rating: ''
-  });
-};
-
-/**
- * Select a restaurant
- */
-const selectRestaurant = (restaurant) => {
+const setSelectedRestaurant = (restaurant) => {
   selectedRestaurant.value = restaurant;
 };
 
-/**
- * Close info window
- */
-const closeInfoWindow = () => {
+const clearSelectedRestaurant = () => {
   selectedRestaurant.value = null;
 };
 
-/**
- * Handle search term change
- */
-const handleSearchTermChange = (term) => {
-  searchTerm.value = term;
+const clearError = () => {
+  error.value = null;
 };
 
-// Initial search on component mount
-onMounted(() => {
-  // Geocode the initial search value to get coordinates
-  axios.get('/api/geocode', {
-    params: { address: initialSearchValue.value }
-  }).then(response => {
-    if (response.data && response.data.results && response.data.results.length > 0) {
-      const location = response.data.results[0].geometry.location;
-      handleSearch({
-        lat: location.lat,
-        lng: location.lng,
-        radius: 1000,
-        cuisine: '',
-        rating: '',
-        term: initialSearchValue.value
-      });
+// Check if Google Maps API key is set
+const checkApiKey = async () => {
+  try {
+    const response = await axios.get('/api/test');
+    console.log('API test response:', response.data);
+    
+    if (!response.data.google_maps_api_key_exists) {
+      error.value = 'Google Maps API key is not set. Please add it to your .env file.';
     }
-  }).catch(error => {
-    console.error('Error geocoding initial location:', error);
-  });
+  } catch (err) {
+    console.error('Error checking API key:', err);
+    error.value = 'Could not verify API configuration. Please check server logs.';
+  }
+};
+
+onMounted(() => {
+  // Check API key first
+  checkApiKey();
+  
+  // Show welcome message
+  console.log('Restaurant Finder loaded. Click on the map or search for a location to find nearby restaurants.');
 });
 </script>
+
+<style scoped>
+.spinner-border {
+  width: 3rem;
+  height: 3rem;
+}
+
+.position-fixed {
+  backdrop-filter: blur(2px);
+}
+</style>
